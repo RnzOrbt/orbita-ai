@@ -57,7 +57,7 @@ It works, but it is **slow**. A short answer takes a few seconds. A long answer 
 | `deploy/piper-voice.service` | Makes the voice start by itself |
 | `deploy/voice_server.py` | Small program that turns text into speech |
 | `.gitignore` | Stops big or private files from being uploaded by mistake |
-| `sysflow/orbita-ai-sysflow.mp4` | Visual presentation of how things work on this project |
+| `sysflow/orbita-ai-sysflow.gif` | Visual presentation of how things work on this project |
 
 The AI model and voice files are big, so they are **not** in this folder. The guide shows where to download them.
 
