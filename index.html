@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orbita_Ai</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --ink: #1a1a1a;
+    --muted: #7a7a7a;
+    --line: #e8e8e8;
+    --bot: #f5f5f5;
+    --user: #1a1a1a;
+    --user-ink: #ffffff;
+    --danger: #c0392b;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    justify-content: center;
+  }
+  .app {
+    width: 100%;
+    max-width: 720px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 0 16px;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 0 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  header h1 { font-size: 20px; margin: 0; font-weight: 700; letter-spacing: -0.2px; }
+  header .status { font-size: 13px; color: var(--muted); }
+  header button {
+    background: #fff;
+    border: 1px solid var(--line);
+    color: var(--ink);
+    border-radius: 8px;
+    padding: 7px 12px;
+    font: inherit;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  header button:hover { background: var(--bot); }
+  #log {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .empty { margin: auto; text-align: center; color: var(--muted); max-width: 30ch; }
+  .msg {
+    max-width: 85%;
+    padding: 10px 14px;
+    border-radius: 16px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .msg.user { align-self: flex-end; background: var(--user); color: var(--user-ink); border-bottom-right-radius: 4px; }
+  .msg.bot { align-self: flex-start; background: var(--bot); border-bottom-left-radius: 4px; }
+  .msg.err { align-self: flex-start; color: var(--danger); background: #fff; border: 1px solid var(--danger); }
+  .msg.bot.pending::after { content: "▍"; color: var(--muted); }
+  .note { align-self: flex-start; font-size: 12px; color: var(--muted); margin: 0 0 -8px 4px; }
+  form {
+    display: flex;
+    gap: 8px;
+    padding: 12px 0 18px;
+  }
+  textarea {
+    flex: 1;
+    resize: none;
+    max-height: 140px;
+    padding: 11px 14px;
+    border-radius: 14px;
+    border: 1px solid var(--line);
+    background: #fff;
+    color: var(--ink);
+    font: inherit;
+  }
+  textarea::placeholder { color: var(--muted); }
+  textarea:focus-visible, button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  #send {
+    background: var(--ink);
+    color: #fff;
+    border: 0;
+    border-radius: 14px;
+    padding: 0 20px;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  #send.stop { background: var(--danger); }
+  #send:disabled { opacity: .5; cursor: not-allowed; }
+  header .actions { display: flex; gap: 8px; }
+  #speak.on, #effort.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .icon {
+    width: 46px;
+    border: 1px solid var(--line);
+    background: #fff;
+    color: var(--ink);
+    border-radius: 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .icon:hover { background: var(--bot); }
+  .icon.on { background: var(--danger); border-color: var(--danger); color: #fff; }
+  .tip { align-self: center; text-align: center; font-size: 13px; color: var(--muted); max-width: 40ch; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div>
+      <h1>Orbita_Ai</h1>
+      <div class="status" id="status">Checking server…</div>
+    </div>
+    <div class="actions">
+      <button type="button" id="speak" aria-pressed="false">Voice off</button>
+      <button type="button" id="effort" title="Tap to change: Low is fastest, Max is the most thorough">Effort: Max</button>
+      <button type="button" id="clear">New chat</button>
+    </div>
+  </header>
+
+  <main id="log" aria-live="polite"></main>
+
+  <form id="form">
+    <textarea id="input" rows="1" placeholder="Ask Orbita_Ai anything…" aria-label="Message"></textarea>
+    <button id="mic" class="icon" type="button" aria-label="Speak your question" title="Speak your question">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+    </button>
+    <button id="send" type="submit">Send</button>
+  </form>
+</div>
+
+<script>
+(function () {
+  // Effort levels. tokens = longest reply, history = past messages sent.
+  var LEVELS = {
+    low: {
+      label: "Low", tokens: 120, temp: 0.7, history: 4,
+      prompt: "You are Orbita_Ai, a helpful assistant. Answer in one or two short sentences."
+    },
+    medium: {
+      label: "Medium", tokens: 300, temp: 0.6, history: 6,
+      prompt: "You are Orbita_Ai, a helpful assistant. Keep answers clear and concise."
+    },
+    high: {
+      label: "High", tokens: 700, temp: 0.5, history: 8,
+      prompt: "You are Orbita_Ai, a careful and thorough assistant. Give complete, well-organised answers. For problems, work through them step by step before giving the final answer. Explain your reasoning, give a concrete example when it helps, and say so if you are not sure."
+    },
+    max: {
+      label: "Max", tokens: 1400, temp: 0.3, history: 10,
+      prompt: "You are Orbita_Ai, an exceptionally thorough expert assistant. Work through every problem step by step before giving the final answer. Cover the key details, edge cases, and common mistakes. Use clear structure, give concrete examples, double-check your reasoning, and say plainly when you are unsure or when something depends on the situation."
+    }
+  };
+  var API_KEY = "";         // leave empty unless you use --api-key
+  var VOICE_LANG = "en-US"; // mic language
+
+  var log = document.getElementById("log");
+  var form = document.getElementById("form");
+  var input = document.getElementById("input");
+  var send = document.getElementById("send");
+  var statusEl = document.getElementById("status");
+  var clearBtn = document.getElementById("clear");
+
+  var history = [];
+  var controller = null;
+
+  function showEmpty() {
+    log.innerHTML = "";
+    var d = document.createElement("div");
+    d.className = "empty";
+    d.textContent = "Replies can take a moment. Type your question below to start.";
+    log.appendChild(d);
+  }
+
+  function addMsg(role, text) {
+    var empty = log.querySelector(".empty");
+    if (empty) empty.remove();
+    var d = document.createElement("div");
+    d.className = "msg " + role;
+    d.textContent = text;
+    log.appendChild(d);
+    log.scrollTop = log.scrollHeight;
+    return d;
+  }
+
+  var WEATHER_CODES = {0:"clear sky",1:"mostly clear",2:"partly cloudy",3:"overcast",45:"fog",48:"fog",51:"light drizzle",53:"drizzle",55:"heavy drizzle",56:"freezing drizzle",57:"freezing drizzle",61:"light rain",63:"rain",65:"heavy rain",66:"freezing rain",67:"freezing rain",71:"light snow",73:"snow",75:"heavy snow",77:"snow grains",80:"light showers",81:"showers",82:"violent showers",85:"snow showers",86:"heavy snow showers",95:"thunderstorm",96:"thunderstorm with hail",99:"thunderstorm with heavy hail"};
+
+  function wantsWeather(t) {
+    return /\b(weather|forecast|temperature|raining|rain|humidity|humid|how (?:hot|cold|warm)|sunny|snowing|snow|storm|typhoon|windy|wind)\b/i.test(t);
+  }
+
+  function findPlace(t) {
+    var re = /\b(?:in|at|for|near|around)\s+([^?.!,;]+?)(?=\s+(?:today|tomorrow|tonight|now|right now|this|next|later|currently|please)\b|[?.!,;]|$)/gi;
+    var m, last = null;
+    while ((m = re.exec(t)) !== null) last = m[1];
+    if (!last) return "";
+    return last.replace(/^(the|my)\s+/i, "").trim();
+  }
+
+  async function getWeather(place) {
+    if (!place) {
+      return { prompt: "The user asked about the weather but did not name a place. Ask which city they mean.", label: "" };
+    }
+    try {
+      var words = place.split(/\s+/), geo = null;
+      for (var n = words.length; n >= 1 && !geo; n--) {
+        var q = words.slice(0, n).join(" ");
+        var g = await fetch("https://geocoding-api.open-meteo.com/v1/search?count=1&language=en&format=json&name=" + encodeURIComponent(q));
+        var gj = await g.json();
+        if (gj.results && gj.results.length) geo = gj.results[0];
+      }
+      if (!geo) {
+        return { prompt: "A weather lookup for \"" + place + "\" found no matching place. Tell the user and ask for a city name.", label: "" };
+      }
+      var url = "https://api.open-meteo.com/v1/forecast?latitude=" + geo.latitude + "&longitude=" + geo.longitude +
+        "&current=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,wind_speed_10m" +
+        "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=3";
+      var r = await fetch(url);
+      var w = await r.json();
+      var c = w.current, d = w.daily;
+      var name = geo.name + (geo.admin1 ? ", " + geo.admin1 : "") + (geo.country ? ", " + geo.country : "");
+      var lines = [
+        "Live weather data for " + name + " (local time " + c.time.replace("T", " ") + "):",
+        "Now: " + c.temperature_2m + "°C (feels like " + c.apparent_temperature + "°C), " +
+          (WEATHER_CODES[c.weather_code] || "unknown conditions") + ", humidity " + c.relative_humidity_2m +
+          "%, wind " + c.wind_speed_10m + " km/h, precipitation " + c.precipitation + " mm."
+      ];
+      for (var i = 0; i < d.time.length; i++) {
+        lines.push(d.time[i] + ": " + (WEATHER_CODES[d.weather_code[i]] || "unknown") +
+          ", high " + d.temperature_2m_max[i] + "°C, low " + d.temperature_2m_min[i] +
+          "°C, chance of rain " + d.precipitation_probability_max[i] + "%.");
+      }
+      return { prompt: lines.join("\n") + "\nAnswer using this data. Do not invent other numbers.", label: name };
+    } catch (e) {
+      return { prompt: "The live weather lookup failed (the device may be offline). Tell the user you could not get live weather right now.", label: "" };
+    }
+  }
+
+  var speakBtn = document.getElementById("speak");
+  var micBtn = document.getElementById("mic");
+  var voiceOn = false;
+  try { voiceOn = localStorage.getItem("orbita_piper") === "1"; } catch (e) {}
+  var voiceWarned = false;
+  var spokenUpTo = 0;
+  var gen = 0;                       // bumps every time speech is cancelled
+  var audioChain = Promise.resolve();
+  var player = new Audio();          // one shared player, unlocked by a tap (needed on iPhone)
+  function makeSilenceUrl() {
+    var n = 800, buf = new ArrayBuffer(44 + n), v = new DataView(buf);
+    function w(o, str) { for (var i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); }
+    w(0, "RIFF"); v.setUint32(4, 36 + n, true); w(8, "WAVE"); w(12, "fmt ");
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, 8000, true); v.setUint32(28, 8000, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true);
+    w(36, "data"); v.setUint32(40, n, true);
+    for (var i = 0; i < n; i++) v.setUint8(44 + i, 128);
+    return URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
+  }
+  var SILENCE = makeSilenceUrl();
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var rec = null;
+  var listening = false;
+
+  function unlockAudio() {
+    if (!voiceOn) return;
+    try { player.src = SILENCE; var pr = player.play(); if (pr && pr.catch) pr.catch(function () {}); } catch (e) {}
+  }
+
+  function cleanForSpeech(t) {
+    return t
+      .replace(/```[\s\S]*?```/g, " code block ")
+      .replace(/https?:\/\/\S+/g, " link ")
+      .replace(/\p{Extended_Pictographic}/gu, "")
+      .replace(/°\s*C\b/g, " degrees Celsius")
+      .replace(/°\s*F\b/g, " degrees Fahrenheit")
+      .replace(/\bkm\/h\b/g, " kilometres per hour")
+      .replace(/(\d)\s*mm\b/g, "$1 millimetres")
+      .replace(/%/g, " percent")
+      .replace(/&/g, " and ")
+      .replace(/\s[-–—]\s|—/g, ", ")
+      .replace(/[*#_`>~]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function voiceProblem(msg) {
+    if (voiceWarned) return;
+    voiceWarned = true;
+    tip(msg);
+  }
+
+  function piperSay(t) {
+    var myGen = gen;
+    var clip = fetch("/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: t })
+      })
+      .then(function (r) {
+        if (!r.ok) throw new Error("the voice server answered " + r.status);
+        return r.arrayBuffer();
+      })
+      .then(function (buf) {
+        var h = new Uint8Array(buf.slice(0, 4));
+        if (String.fromCharCode(h[0], h[1], h[2], h[3]) !== "RIFF") {
+          throw new Error("the voice server did not send audio");
+        }
+        return URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
+      });
+    clip.catch(function () {});
+    audioChain = audioChain.then(function () {
+      if (myGen !== gen) return;
+      return clip.then(function (url) {
+        if (myGen !== gen) { URL.revokeObjectURL(url); return; }
+        return new Promise(function (resolve) {
+          var done = function () { player.onended = player.onerror = null; URL.revokeObjectURL(url); resolve(); };
+          player.onended = done;
+          player.onerror = function () {
+            if (player.src !== url) return;
+            var why = player.error ? (player.error.code + " " + (player.error.message || "")).trim() : "unknown";
+            voiceProblem("The voice audio could not be played (" + why + ").");
+            done();
+          };
+          player.src = url;
+          var pr = player.play();
+          if (pr && pr.catch) pr.catch(function (e) {
+            voiceProblem("Your browser blocked the audio (" + ((e && e.name) || "error") + "). Tap the Voice button off and on again.");
+            done();
+          });
+        });
+      }).catch(function (err) {
+        if (myGen !== gen) return;
+        voiceProblem("The voice is not working: " + (err && err.message ? err.message : "cannot reach it") + ". Check that the piper-voice service is running.");
+      });
+    });
+  }
+
+  function say(text) {
+    if (!voiceOn) return;
+    var t = cleanForSpeech(text);
+    if (t) piperSay(t);
+  }
+
+  function stopSpeaking() {
+    gen++;
+    voiceWarned = false;
+    audioChain = Promise.resolve();
+    try { player.pause(); player.onended = player.onerror = null; } catch (e) {}
+  }
+
+  function speakNewSentences(full, final) {
+    var rest = full.slice(spokenUpTo);
+    if (final) { say(rest); spokenUpTo = full.length; return; }
+    var idx = -1, m, re = /[.!?]+(?=\s)|\n/g;
+    while ((m = re.exec(rest)) !== null) idx = m.index + m[0].length;
+    if (idx > 0) { say(rest.slice(0, idx)); spokenUpTo += idx; }
+  }
+
+  function tip(msg) {
+    var empty = log.querySelector(".empty");
+    if (empty) empty.remove();
+    var d = document.createElement("div");
+    d.className = "tip";
+    d.textContent = msg;
+    log.appendChild(d);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function showSpeakState() {
+    speakBtn.textContent = voiceOn ? "Voice on" : "Voice off";
+    speakBtn.classList.toggle("on", voiceOn);
+    speakBtn.setAttribute("aria-pressed", voiceOn ? "true" : "false");
+  }
+
+  function startListening() {
+    if (controller) return;
+    if (!SR) { tip("Voice input is not supported in this browser. Try Chrome or Safari."); return; }
+    if (!window.isSecureContext) { tip("Voice input needs a secure page (https or localhost). Spoken replies still work."); return; }
+    stopSpeaking();
+    rec = new SR();
+    rec.lang = VOICE_LANG;
+    rec.interimResults = true;
+    rec.continuous = false;
+    var heard = "";
+    rec.onstart = function () { listening = true; micBtn.classList.add("on"); };
+    rec.onresult = function (e) {
+      var t = "";
+      for (var i = 0; i < e.results.length; i++) t += e.results[i][0].transcript;
+      heard = t;
+      input.value = t;
+      input.dispatchEvent(new Event("input"));
+    };
+    rec.onerror = function (e) {
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+        tip("Microphone is blocked. Allow it in the browser's site settings.");
+      }
+    };
+    rec.onend = function () {
+      listening = false;
+      micBtn.classList.remove("on");
+      if (heard.trim()) form.requestSubmit();
+    };
+    try { rec.start(); } catch (e) {}
+  }
+
+  micBtn.addEventListener("click", function () {
+    unlockAudio();
+    if (listening && rec) rec.stop(); else startListening();
+  });
+
+  speakBtn.addEventListener("click", function () {
+    stopSpeaking();
+    voiceOn = !voiceOn;
+    try { localStorage.setItem("orbita_piper", voiceOn ? "1" : "0"); } catch (e) {}
+    showSpeakState();
+    unlockAudio();
+    if (voiceOn) say("Voice on.");
+  });
+  showSpeakState();
+
+  function setBusy(busy) {
+    send.textContent = busy ? "Stop" : "Send";
+    send.classList.toggle("stop", busy);
+    input.disabled = busy;
+  }
+
+  function headers() {
+    var h = { "Content-Type": "application/json" };
+    if (API_KEY) h["Authorization"] = "Bearer " + API_KEY;
+    return h;
+  }
+
+  function checkServer() {
+    fetch("/health", { headers: headers() })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        statusEl.textContent = j.status === "ok" ? "Online" : "Loading model…";
+      })
+      .catch(function () { statusEl.textContent = "Server not reachable"; });
+  }
+
+  async function ask(text) {
+    spokenUpTo = 0;
+    stopSpeaking();
+    history.push({ role: "user", content: text });
+    addMsg("user", text);
+    var bubble = addMsg("bot pending", "");
+    var reply = "";
+    controller = new AbortController();
+    setBusy(true);
+
+    var lv = LEVELS[level];
+    var sys = lv.prompt;
+    if (voiceOn) sys += "\n\nYour reply will be spoken aloud, so talk like a warm, quick-witted British assistant. Use short, natural sentences and contractions. No lists, no markdown, no emojis.";
+    if (wantsWeather(text)) {
+      bubble.textContent = "Looking up the weather…";
+      var wx = await getWeather(findPlace(text));
+      sys += "\n\n" + wx.prompt;
+      if (wx.label) {
+        var note = document.createElement("div");
+        note.className = "note";
+        note.textContent = "Live weather: " + wx.label;
+        log.insertBefore(note, bubble);
+      }
+      bubble.textContent = "";
+    }
+
+    var messages = [{ role: "system", content: sys }]
+      .concat(history.slice(-lv.history));
+
+    try {
+      var res = await fetch("/v1/chat/completions", {
+        method: "POST",
+        headers: headers(),
+        signal: controller.signal,
+        body: JSON.stringify({
+          messages: messages,
+          stream: true,
+          max_tokens: lv.tokens,
+          temperature: lv.temp,
+          cache_prompt: true
+        })
+      });
+      if (!res.ok) throw new Error("Server answered " + res.status);
+
+      var reader = res.body.getReader();
+      var decoder = new TextDecoder();
+      var buffer = "";
+
+      while (true) {
+        var chunk = await reader.read();
+        if (chunk.done) break;
+        buffer += decoder.decode(chunk.value, { stream: true });
+        var lines = buffer.split("\n");
+        buffer = lines.pop();
+        for (var i = 0; i < lines.length; i++) {
+          var line = lines[i].trim();
+          if (line.indexOf("data:") !== 0) continue;
+          var payload = line.slice(5).trim();
+          if (payload === "[DONE]") continue;
+          try {
+            var delta = JSON.parse(payload).choices[0].delta;
+            if (delta && delta.content) {
+              reply += delta.content;
+              bubble.textContent = reply;
+              log.scrollTop = log.scrollHeight;
+              speakNewSentences(reply, false);
+            }
+          } catch (e) { }
+        }
+      }
+      speakNewSentences(reply, true);
+      history.push({ role: "assistant", content: reply });
+    } catch (err) {
+      stopSpeaking();
+      if (err.name === "AbortError") {
+        if (reply) history.push({ role: "assistant", content: reply });
+        else history.pop();
+      } else {
+        bubble.className = "msg err";
+        bubble.textContent = "Could not get a reply. " + err.message + ". Check that the server is running.";
+        history.pop();
+      }
+    } finally {
+      bubble.classList.remove("pending");
+      controller = null;
+      setBusy(false);
+      input.focus();
+    }
+  }
+
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    unlockAudio();
+    if (controller) { controller.abort(); return; }
+    var text = input.value.trim();
+    if (!text) return;
+    input.value = "";
+    input.style.height = "auto";
+    ask(text);
+  });
+
+  input.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      form.requestSubmit();
+    }
+  });
+
+  input.addEventListener("input", function () {
+    input.style.height = "auto";
+    input.style.height = Math.min(input.scrollHeight, 140) + "px";
+  });
+
+  clearBtn.addEventListener("click", function () {
+    if (controller) controller.abort();
+    stopSpeaking();
+    history = [];
+    showEmpty();
+  });
+
+  var ORDER = ["low", "medium", "high", "max"];
+  var level = "max";
+  try {
+    var savedLevel = localStorage.getItem("orbita_level");
+    if (ORDER.indexOf(savedLevel) >= 0) level = savedLevel;
+  } catch (e) {}
+  var effortBtn = document.getElementById("effort");
+  function showEffort() {
+    effortBtn.textContent = "Effort: " + LEVELS[level].label;
+    effortBtn.classList.toggle("on", level === "high" || level === "max");
+  }
+  effortBtn.addEventListener("click", function () {
+    level = ORDER[(ORDER.indexOf(level) + 1) % ORDER.length];
+    try { localStorage.setItem("orbita_level", level); } catch (e) {}
+    showEffort();
+  });
+  showEffort();
+
+  showEmpty();
+  checkServer();
+  setInterval(checkServer, 15000);
+})();
+</script>
+</body>
+</html>

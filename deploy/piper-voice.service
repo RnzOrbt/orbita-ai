@@ -1,0 +1,12 @@
+# /etc/systemd/system/piper-voice.service  (replace YOUR_USER)
+[Unit]
+Description=Piper voice server
+After=network.target
+
+[Service]
+User=YOUR_USER
+ExecStart=/home/YOUR_USER/piper-env/bin/python3 /home/YOUR_USER/piper/voice_server.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

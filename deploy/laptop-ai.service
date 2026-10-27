@@ -1,0 +1,12 @@
+# /etc/systemd/system/laptop-ai.service  (replace YOUR_USER; set -t to your CPU cores)
+[Unit]
+Description=Orbita_Ai local AI server
+After=network.target
+
+[Service]
+User=YOUR_USER
+ExecStart=/home/YOUR_USER/llama.cpp/build/bin/llama-server -m /home/YOUR_USER/models/qwen2.5-1.5b-instruct-q4_k_m.gguf --path /home/YOUR_USER/ai-site --host 127.0.0.1 --port 8080 -c 4096 -np 1 -t 2
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,23 @@
+# Secrets / credentials
+.env
+.env.*
+*.key
+*.pem
+.htpasswd
+
+# Large or generated files (ai model, voice model and the llama)
+*.gguf
+*.onnx
+*.onnx.json
+*.wav
+llama.cpp/
+models/
+piper/
+piper-env/
+venv/
+__pycache__/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
